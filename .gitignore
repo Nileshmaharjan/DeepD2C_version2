@@ -1,0 +1,10 @@
+__pycache__/
+logs/
+data/
+checkpoints/
+detector_models/
+saved_models/
+out/
+other/
+pb_viewer/
+.idea/
