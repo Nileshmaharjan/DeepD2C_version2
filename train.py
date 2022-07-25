@@ -61,7 +61,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name', type=str)  # experiment name
     parser.add_argument('--secret_size', type=int, default=20)  # secret size
-    parser.add_argument('--num_steps', type=int, default=100)  # number of steps
+    parser.add_argument('--num_steps', type=int, default=100000)  # number of steps
     parser.add_argument('--batch_size', type=int, default=4)  # batch size
     parser.add_argument('--lr', type=float, default=.0001)  # learning rate
     parser.add_argument('--l2_loss_scale', type=float, default=1.5)  # L2 regularization params
@@ -269,9 +269,10 @@ def main():
                 writer.add_summary(summary, global_step)
 
             if global_step % 100 == 0:
+                print("I sam hrtr")
                 save_path = saver.save(sess=sess, save_path=join(newCheckPointPath, EXP_NAME + ".chkp"),
-                                       global_step=global_step,save_debug_info=True)
-
+                                       global_step=global_step)
+                print("I sam hrtr")
     constant_graph_def = tf.compat.v1.graph_util.convert_variables_to_constants(
         sess,
         sess.graph.as_graph_def(),

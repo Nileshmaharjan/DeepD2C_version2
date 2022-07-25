@@ -3,13 +3,15 @@ import glob
 from PIL import Image, ImageOps
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.image
 from tensorflow.python.saved_model import tag_constants
 from tensorflow.python.saved_model import signature_constants
 from tqdm import tqdm
 
 import time
 start_time = time.time()
+
+from dotenv import load_dotenv
+import os
 
 BCH_POLYNOMIAL = 137
 BCH_BITS = 7
@@ -19,12 +21,17 @@ BCH_BITS = 7
 #print(input_data)
 
 def main():
+    # read env files from environment
+    model_directory = os.getenv('model_directory')
+    encoded_file_directory_path = os.getenv('encoded_file_directory_path')
+    secret_size = os.getenv('secret_size')
+
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str)
+    parser.add_argument('--model', type=str, default=model_directory)
     parser.add_argument('--image', type=str, default=None)
-    parser.add_argument('--images_dir', type=str, default=None)
-    parser.add_argument('--secret_size', type=int, default=200)
+    parser.add_argument('--images_dir', type=str, default=encoded_file_directory_path)
+    parser.add_argument('--secret_size', type=int, default=secret_size)
     args = parser.parse_args()
 
     if args.image is not None:
