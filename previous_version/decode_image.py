@@ -3,7 +3,6 @@ import glob
 from PIL import Image, ImageOps
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.image
 from tensorflow.python.saved_model import tag_constants
 from tensorflow.python.saved_model import signature_constants
 from tqdm import tqdm
@@ -18,23 +17,21 @@ BCH_POLYNOMIAL = 137
 BCH_BITS = 7
 
 
+#input_data = np.loadtxt("C:/Research/COdes/DeepD2C/21DEC04/input_bits/binary_input.txt", delimiter=",", dtype=int)
+#print(input_data)
+
 def main():
     # read env files from environment
     model_directory = os.getenv('model_directory')
     encoded_file_directory_path = os.getenv('encoded_file_directory_path')
     secret_size = os.getenv('secret_size')
-    binary_file_path = os.getenv('binary_file_directory_path')
-    experiment_directory_path = os.getenv('experiment_directory_path')
-    ber_file_name = "ber.txt"
-    ber_file_path = experiment_directory_path + '/' + ber_file_name
-
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str,  default=model_directory)
+    parser.add_argument('--model', type=str, default=model_directory)
     parser.add_argument('--image', type=str, default=None)
     parser.add_argument('--images_dir', type=str, default=encoded_file_directory_path)
-    parser.add_argument('--secret_size', type=int, default=200)
+    parser.add_argument('--secret_size', type=int, default=secret_size)
     args = parser.parse_args()
 
     if args.image is not None:
@@ -45,23 +42,19 @@ def main():
         print('Missing input image')
         return
 
-    binary_input = np.loadtxt(binary_file_path)
-    input_data = np.asarray(binary_input, dtype=int).tolist()
+    sess = tf.compat.v1.InteractiveSession(graph=tf.Graph())
 
-    sess = tf.InteractiveSession(graph=tf.Graph())
-
-    model = tf.saved_model.loader.load(sess, [tag_constants.SERVING], args.model)
+    model = tf.compat.v1.saved_model.loader.load(sess, [tag_constants.SERVING], args.model)
 
     input_image_name = model.signature_def[signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY].inputs['image'].name
-    input_image = tf.get_default_graph().get_tensor_by_name(input_image_name)
+    input_image = tf.compat.v1.get_default_graph().get_tensor_by_name(input_image_name)
 
     output_secret_name = model.signature_def[signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY].outputs['decoded'].name
-    output_secret = tf.get_default_graph().get_tensor_by_name(output_secret_name)
+    output_secret = tf.compat.v1.get_default_graph().get_tensor_by_name(output_secret_name)
 
     bch = bchlib.BCH(BCH_POLYNOMIAL, BCH_BITS)
 
     ber_list = []
-    index = 1  # used in ber calculation
     for i, filename in enumerate(tqdm(files_list)):
         image = Image.open(filename).convert("RGB")
         image = np.array(ImageOps.fit(image,(256, 256)),dtype=np.float32)
@@ -78,26 +71,29 @@ def main():
 
         data, ecc = packet[:-bch.ecc_bytes], packet[-bch.ecc_bytes:]
 
-        decoded = np.asarray(decoded_data, dtype=int).tolist()
+        # bitflips = bch.decode_inplace(data, ecc)
+        #er = np.logical_xor(input_data, decoded_data)
+        #er = np.count_nonzero(er)
+        #ber = er/len(input_data)
+        #ber_list.append(ber)
 
-        err = 0
-        n = 200
-        for i in range(n):
-            print(i)
-            if input_data[i] == decoded[i]:
-                err = err + 0
-            else:
-                err = err + 1
-        ber = err/n
-        ber_list.append(ber)
-        index = index + 1
-        print('Total error', err)
+        print('\nDecoded bits :', np.asarray(decoded_data, dtype=int).tolist())
+        #print('Input bits   :', np.asarray(input_data, dtype=int).tolist())
 
-    avg_ber = sum(ber_list) / index
-    f = open(ber_file_path, "w+")
-    f.write(f"The average ber value from {index - 1} images is: {avg_ber} ")
+        #print(f'{i+1}_Bit Error Rate : {ber}')
+
+
+        # if bitflips != -1:
+        #     try:
+        #         code = data.decode("utf-8")
+        #         print(filename, code)
+        #         continue
+        #     except:
+        #         continue
+        # print(filename, 'Failed to decode')
 
     print('-------Finished-------')
+    #print(f'BER Average : {np.mean(ber_list)}')
 
 if __name__ == "__main__":
     main()

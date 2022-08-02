@@ -9,16 +9,21 @@ import tensorflow as tf
 # tf.compat.v1.disable_v2_behavior()
 tf.compat.v1.disable_eager_execution()
 import utils
-import models
+from previous_version import models
 from os.path import join
-from parameters import *
+import time
 
+print('t', tf.version.VERSION)
 # Specify your training path.
 # Keep your training folder on the :/C drive with no parent folders. Otherwise you might encounter some errors.
 
+TRAIN_PATH = '/train'
+LOGS_Path = "../logs/"
+CHECKPOINTS_PATH = '../checkpoints/'
+SAVED_MODELS = './saved_models'
 
-if not os.path.exists(os.getenv('CHECKPOINTS_PATH')):
-    os.makedirs(os.getenv('CHECKPOINTS_PATH'))
+if not os.path.exists(CHECKPOINTS_PATH):
+    os.makedirs(CHECKPOINTS_PATH)
 
 
 def get_img_batch(files_list,
@@ -50,14 +55,14 @@ def get_img_batch(files_list,
 # Creating argument parsers.
 # All the arguments have default value, so you don't need to specify the parameters.
 # Specify teh values for those with no default parameters.
-def main(batch, rate, steps):
+def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name', type=str)  # experiment name
     parser.add_argument('--secret_size', type=int, default=20)  # secret size
     parser.add_argument('--num_steps', type=int, default=200000)  # number of steps
     parser.add_argument('--batch_size', type=int, default=4)  # batch size
-    parser.add_argument('--lr', type=float, default=.001)  # learning rate
+    parser.add_argument('--lr', type=float, default=.0001)  # learning rate
     parser.add_argument('--l2_loss_scale', type=float, default=1.5)  # L2 regularization params
     parser.add_argument('--l2_loss_ramp', type=int, default=20000)
     parser.add_argument('--l2_edge_gain', type=float, default=10.0)
@@ -97,18 +102,17 @@ def main(batch, rate, steps):
     parser.add_argument('--pretrained', type=str, default=None)
     args = parser.parse_args()
 
-    files_list = glob.glob(join(os.getenv('TRAIN_PATH'), "**/*"))
+    EXP_NAME = args.exp_name
+    logName = EXP_NAME + "-{}".format(int(time.time()))
+    savedModelName = EXP_NAME + "-{}".format(int(time.time()))
+    files_list = glob.glob(join(TRAIN_PATH, "**/*"))
 
-    experiment_name, log_name, saved_model_name, check_point_name = naming_convention(args.exp_name, rate,
-                                                                                      batch, steps)
-    learning_rate_final = rate
-    batch_size_final = batch
-    steps_final = steps
+    # Create new checkpoint path
+    checkpointName = "{}".format(int(time.time()))
+    newCheckPointPath = CHECKPOINTS_PATH + checkpointName
 
-    new_check_point_path = os.getenv('CHECKPOINTS_PATH') + check_point_name
-
-    if not os.path.exists(new_check_point_path):
-        os.makedirs(new_check_point_path)
+    if not os.path.exists(newCheckPointPath):
+        os.makedirs(newCheckPointPath)
 
     config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
@@ -127,32 +131,21 @@ def main(batch, rate, steps):
     # tf variable represents tensor whose value can be changed running ops on it.
     global_step_tensor = tf.Variable(0, trainable=False, name='global_step')
 
+    # physical meaning ??
     loss_scales_pl = tf.compat.v1.placeholder(shape=[4], dtype=tf.float32, name="input_loss_scales")
+
+    # physical meaning ??
     l2_edge_gain_pl = tf.compat.v1.placeholder(shape=[1], dtype=tf.float32, name="input_edge_gain")
     yuv_scales_pl = tf.compat.v1.placeholder(shape=[3], dtype=tf.float32, name="input_yuv_scales")
 
     log_decode_mod_pl = tf.compat.v1.placeholder(shape=[], dtype=tf.float32, name="input_log_decode_mod")
 
     # Your model is created here
-    encoder = models.D2CEncoder(height=height, width=width)
-    decoder = models.D2CDecoder(height=height, width=width)
+    encoder = models.StegaStampEncoder(height=height, width=width)
+    decoder = models.StegaStampDecoder(height=height, width=width)
     discriminator = models.Discriminator()
 
-    buildmodel = models.BuildModel(encoder=encoder,
-                                   decoder=decoder,
-                                   discriminator=discriminator,
-                                   secret_input=secret_pl,
-                                   image_input=image_pl,
-                                   l2_edge_gain=l2_edge_gain_pl,
-                                   borders=args.borders,
-                                   secret_size=args.secret_size,
-                                   M=M_pl,
-                                   loss_scales=loss_scales_pl,
-                                   yuv_scales=yuv_scales_pl,
-                                   args=args,
-                                   global_step=global_step_tensor)
-
-    loss_op, secret_loss_op, D_loss_op, summary_op, image_summary_op, _ = buildmodel(
+    loss_op, secret_loss_op, D_loss_op, summary_op, image_summary_op, _ = models.build_model(
         encoder=encoder,
         decoder=decoder,
         discriminator=discriminator,
@@ -170,14 +163,13 @@ def main(batch, rate, steps):
     tvars = tf.compat.v1.trainable_variables()  # returns all variables created(the two variable scopes) and makes trainable true
 
     d_vars = [var for var in tvars if 'discriminator' in var.name]
-    g_vars = [var for var in tvars if 'd2c' in var.name]
+    g_vars = [var for var in tvars if 'stega_stamp' in var.name]
 
     clip_D = [p.assign(tf.clip_by_value(p, -0.01, 0.01)) for p in d_vars]
 
-    train_op = tf.compat.v1.train.AdamOptimizer(learning_rate_final).minimize(loss_op, var_list=g_vars,
-                                                                    global_step=global_step_tensor)
-    train_secret_op = tf.compat.v1.train.AdamOptimizer(learning_rate_final).minimize(secret_loss_op, var_list=g_vars,
-                                                                           global_step=global_step_tensor)
+    train_op = tf.compat.v1.train.AdamOptimizer(args.lr).minimize(loss_op, var_list=g_vars, global_step=global_step_tensor)
+    train_secret_op = tf.compat.v1.train.AdamOptimizer(args.lr).minimize(secret_loss_op, var_list=g_vars,
+                                                               global_step=global_step_tensor)
     optimizer = tf.compat.v1.train.RMSPropOptimizer(.00001)
     gvs = optimizer.compute_gradients(D_loss_op, var_list=d_vars)
     capped_gvs = [(tf.clip_by_value(grad, -.25, .25), var) for grad, var in gvs]
@@ -186,40 +178,41 @@ def main(batch, rate, steps):
     deploy_hide_image_op, residual_op = models.prepare_deployment_hiding_graph(encoder, secret_pl, image_pl)
     deploy_decoder_op = models.prepare_deployment_reveal_graph(decoder, image_pl)
 
-    saver = tf.compat.v1.train.Saver(tf.compat.v1.trainable_variables(), max_to_keep=1000, keep_checkpoint_every_n_hours=4)
+    saver = tf.compat.v1.train.Saver(tf.compat.v1.trainable_variables(), max_to_keep=100, keep_checkpoint_every_n_hours=4)
     sess.run(tf.compat.v1.global_variables_initializer())
 
     if args.pretrained is not None:
         saver.restore(sess, args.pretrained)
 
-    # writer = tf.summary.FileWriter(join(os.getenv('LOGS_Path'), log_name), sess.graph)
-    writer = tf.compat.v1.summary.FileWriter(join(os.getenv('LOGS_Path'), log_name), sess.graph)
+    # writer = tf.summary.FileWriter(join(LOGS_Path, logName), sess.graph)
+    writer = tf.compat.v1.summary.FileWriter(join(LOGS_Path, logName), sess.graph)
 
-    total_steps = len(files_list) // batch_size_final + 1
+    total_steps = len(files_list) // args.batch_size + 1
     global_step = 0
 
-    while global_step < steps_final:
-        for _ in range(min(total_steps, steps_final - global_step)):
+    print(total_steps);
+    print(global_step);
+
+    while global_step < args.num_steps:
+        for _ in range(min(total_steps, args.num_steps - global_step)):
             no_im_loss = global_step < args.no_im_loss_steps
             images, secrets = get_img_batch(files_list=files_list,
                                             secret_size=args.secret_size,
-                                            batch_size=batch_size_final,
+                                            batch_size=args.batch_size,
                                             size=(height, width))
             l2_loss_scale = min(args.l2_loss_scale * global_step / args.l2_loss_ramp, args.l2_loss_scale)
-            lpips_loss_scale = min(args.lpips_loss_scale * global_step / args.lpips_loss_ramp,
-                                   args.lpips_loss_scale)
+            lpips_loss_scale = min(args.lpips_loss_scale * global_step / args.lpips_loss_ramp, args.lpips_loss_scale)
             secret_loss_scale = min(args.secret_loss_scale * global_step / args.secret_loss_ramp,
                                     args.secret_loss_scale)
             G_loss_scale = min(args.G_loss_scale * global_step / args.G_loss_ramp, args.G_loss_scale)
             l2_edge_gain = 0
             if global_step > args.l2_edge_delay:
-                l2_edge_gain = min(
-                    args.l2_edge_gain * (global_step - args.l2_edge_delay) / args.l2_edge_ramp,
-                    args.l2_edge_gain)
+                l2_edge_gain = min(args.l2_edge_gain * (global_step - args.l2_edge_delay) / args.l2_edge_ramp,
+                                   args.l2_edge_gain)
 
             rnd_tran = min(args.rnd_trans * global_step / args.rnd_trans_ramp, args.rnd_trans)
             rnd_tran = np.random.uniform() * rnd_tran
-            M = utils.get_rand_transform_matrix(width, np.floor(width * rnd_tran), batch_size_final)
+            M = utils.get_rand_transform_matrix(width, np.floor(width * rnd_tran), args.batch_size)
 
             feed_dict = {secret_pl: secrets,
                          image_pl: images,
@@ -240,6 +233,19 @@ def main(batch, rate, steps):
             if global_step % 100 == 0:
                 summary, global_step = sess.run([summary_op, global_step_tensor], feed_dict)
                 writer.add_summary(summary, global_step)
+                # summary = tf.Summary(value=[tf.Summary.Value(tag='transformer/rnd_tran', simple_value=rnd_tran),
+                #                             tf.Summary.Value(tag='loss_scales/l2_loss_scale',
+                #                                              simple_value=l2_loss_scale),
+                #                             tf.Summary.Value(tag='loss_scales/lpips_loss_scale',
+                #                                              simple_value=lpips_loss_scale),
+                #                             tf.Summary.Value(tag='loss_scales/secret_loss_scale',
+                #                                              simple_value=secret_loss_scale),
+                #                             tf.Summary.Value(tag='loss_scales/y_scale', simple_value=args.y_scale),
+                #                             tf.Summary.Value(tag='loss_scales/u_scale', simple_value=args.u_scale),
+                #                             tf.Summary.Value(tag='loss_scales/v_scale', simple_value=args.v_scale),
+                #                             tf.Summary.Value(tag='loss_scales/G_loss_scale', simple_value=G_loss_scale),
+                #                             tf.Summary.Value(tag='loss_scales/L2_edge_gain',
+                #                                              simple_value=l2_edge_gain), ])
                 summary = tf.compat.v1.Summary(value=[tf.compat.v1.Summary.Value(tag='transformer/rnd_tran', simple_value=rnd_tran),
                                             tf.compat.v1.Summary.Value(tag='loss_scales/l2_loss_scale',
                                                              simple_value=l2_loss_scale),
@@ -255,17 +261,17 @@ def main(batch, rate, steps):
                                                              simple_value=l2_edge_gain), ])
                 writer.add_summary(summary, global_step)
 
-
             print(f'step : {global_step}, loss : {loss}')
 
             if global_step % 100 == 0:
                 summary, global_step = sess.run([image_summary_op, global_step_tensor], feed_dict)
                 writer.add_summary(summary, global_step)
 
-            # if global_step % 100 == 0:
-            # save_path = saver.save(sess, join(newCheckPointPath, EXP_NAME + ".chkp"),
-            #                        global_step=global_step)
-
+            if global_step % 100 == 0:
+                print("I sam hrtr")
+                save_path = saver.save(sess=sess, save_path=join(newCheckPointPath, EXP_NAME + ".chkp"),
+                                       global_step=global_step)
+                print("I sam hrtr")
     constant_graph_def = tf.compat.v1.graph_util.convert_variables_to_constants(
         sess,
         sess.graph.as_graph_def(),
@@ -273,18 +279,15 @@ def main(batch, rate, steps):
     with tf.compat.v1.Session(graph=tf.Graph()) as session:
         tf.import_graph_def(constant_graph_def, name='')
         tf.compat.v1.saved_model.simple_save(session,
-                                   os.getenv('SAVED_MODELS') + '/' + saved_model_name,
+                                   SAVED_MODELS + '/' + savedModelName,
                                    inputs={'secret': secret_pl, 'image': image_pl},
                                    outputs={'stegastamp': deploy_hide_image_op, 'residual': residual_op,
                                             'decoded': deploy_decoder_op})
+        # tf.saved_model.loader.load(
+        #     session, [tf.saved_model.tag_constants.SERVING], SAVED_MODELS + '/' + EXP_NAME)
 
-    tf.keras.backend.clear_session()
     writer.close()
 
 
 if __name__ == "__main__":
-    learning_rate, batch_size, number_of_steps = basic_parameters()
-    for batch in batch_size:
-        for rate in learning_rate:
-            for steps in number_of_steps:
-                main(batch, rate, steps)
+    main()
