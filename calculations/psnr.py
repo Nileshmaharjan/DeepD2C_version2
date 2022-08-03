@@ -4,9 +4,12 @@ import numpy as np
 
 
 def calculate_psnr(original, compressed):
-    original = cv2.imread(original)
-    compressed = cv2.imread(compressed, 1)
-    mse = np.mean((original - compressed) ** 2)
+    original_image = cv2.imread(original)
+    compressed_image = cv2.imread(compressed, 1)
+    print(type(original_image))
+    print(type(compressed_image))
+    test = original_image - compressed_image
+    mse = np.mean((original_image - compressed_image))
     if (mse == 0):  # MSE is zero means no noise is present in the signal .
         # Therefore PSNR have no importance.
         return 100
